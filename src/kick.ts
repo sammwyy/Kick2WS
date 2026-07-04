@@ -149,9 +149,9 @@ export async function createSubscriptions(
 }
 
 export function deleteSubscription(appToken: string, id: string): Promise<unknown> {
-  return apiFetch(appToken, '/events/subscriptions', {
+  // Kick expects the subscription id as a query parameter, not a JSON body.
+  return apiFetch(appToken, `/events/subscriptions?id=${encodeURIComponent(id)}`, {
     method: 'DELETE',
-    body: JSON.stringify({ id }),
   });
 }
 

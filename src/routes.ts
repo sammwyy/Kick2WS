@@ -68,23 +68,28 @@ function setSessionCookie(res: Response, token: string): void {
 async function syncSubscriptions(userId: string, broadcasterId: string): Promise<number> {
   if (config.kick.events.length === 0) return 0;
   const appToken = await getAppAccessToken();
-  const resp = await createSubscriptions(
-    appToken,
-    broadcasterId,
-    config.kick.webhookUrl,
-    config.kick.events,
-  );
-  debug('subscriptions', 'createSubscriptions response:', JSON.stringify(resp));
-  resp.data.forEach((item, index) => {
-    const fallback = config.kick.events[index];
-    insertSubscription({
-      id: String(item.subscription_id ?? item.id ?? `${userId}:${fallback?.name}`),
-      user_id: userId,
-      event_name: item.name ?? fallback?.name ?? 'unknown',
-      version: item.version ?? fallback?.version ?? 1,
-    });
-  });
-  return resp.data.length;
+  let created = 0;
+  // One event per request so a single rejected event does not fail the rest.
+  for (const event of config.kick.events) {
+    try {
+      const resp = await createSubscriptions(appToken, broadcasterId, config.kick.webhookUrl, [
+        event,
+      ]);
+      const item = resp.data[0];
+      const id = String(item?.subscription_id ?? item?.id ?? `${userId}:${event.name}`);
+      insertSubscription({
+        id,
+        user_id: userId,
+        event_name: item?.name ?? event.name,
+        version: item?.version ?? event.version,
+      });
+      created += 1;
+      debug('subscriptions', `subscribed ${event.name} -> id=${id}`);
+    } catch (err) {
+      error('subscriptions', `failed to subscribe ${event.name}:`, (err as Error).message);
+    }
+  }
+  return created;
 }
 
 function requireSession(req: AuthedRequest, res: Response, next: NextFunction): void {
@@ -126,7 +131,14 @@ export function createApp(): express.Express {
   const jsonParser = express.json();
   app.use((req, res, next) => (isWebhookTarget(req) ? next() : jsonParser(req, res, next)));
   app.use(express.urlencoded({ extended: true }));
-  app.use(express.static(publicDir));
+  // no-cache forces the browser (and Cloudflare) to revalidate the dashboard
+  // assets via ETag, so updated app.js/style.css are never served stale.
+  app.use(
+    express.static(publicDir, {
+      etag: true,
+      setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache'),
+    }),
+  );
 
   app.get('/oauth/login', (req, res) => {
     assertKickConfigured();
