@@ -73,14 +73,29 @@ function requireSession(req: AuthedRequest, res: Response, next: NextFunction): 
 export function createApp(): express.Express {
   const app = express();
   app.disable('x-powered-by');
+  app.set('trust proxy', true);
 
-  app.use(
-    express.json({
-      verify: (req, _res, buf) => {
-        (req as AuthedRequest & { rawBody?: Buffer }).rawBody = buf;
-      },
-    }),
-  );
+  // Log every inbound request before any parsing. This tells us whether Kick
+  // (or the reverse proxy) is even reaching the app.
+  app.use((req, _res, next) => {
+    debug(
+      'http',
+      `${req.method} ${req.originalUrl} ct=${req.headers['content-type'] ?? '-'} ` +
+        `kick-event=${req.headers['kick-event-type'] ?? '-'} ua="${req.headers['user-agent'] ?? '-'}" from=${req.ip}`,
+    );
+    next();
+  });
+
+  // Kick delivers to the webhook URL configured in the app dashboard; some
+  // setups point it at the root path instead of /webhook, so both are accepted.
+  const isWebhookTarget = (req: Request) =>
+    req.method === 'POST' && (req.path === '/webhook' || req.path === '/');
+
+  // The webhook needs the exact raw bytes for signature verification and must
+  // work for any content-type Kick sends, so it gets a dedicated raw parser and
+  // is excluded from the global JSON parser.
+  const jsonParser = express.json();
+  app.use((req, res, next) => (isWebhookTarget(req) ? next() : jsonParser(req, res, next)));
   app.use(express.urlencoded({ extended: true }));
   app.use(express.static(publicDir));
 
@@ -225,7 +240,9 @@ export function createApp(): express.Express {
     });
   });
 
-  app.post('/webhook', handleWebhook);
+  const rawParser = express.raw({ type: () => true, limit: '2mb' });
+  app.post('/webhook', rawParser, handleWebhook);
+  app.post('/', rawParser, handleWebhook);
   app.get('/healthz', (_req, res) => res.json({ ok: true, ts: Date.now() }));
 
   return app;

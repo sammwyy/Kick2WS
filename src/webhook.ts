@@ -43,7 +43,8 @@ export async function handleWebhook(req: WebhookRequest, res: Response): Promise
   const eventType = req.get('Kick-Event-Type') ?? 'unknown';
   const eventVersion = Number(req.get('Kick-Event-Version') ?? 1);
   const subscriptionId = req.get('Kick-Event-Subscription-Id') ?? null;
-  const rawBody = req.rawBody?.toString('utf8') ?? '';
+  const rawBuffer = Buffer.isBuffer(req.body) ? req.body : req.rawBody;
+  const rawBody = rawBuffer?.toString('utf8') ?? '';
 
   debug(
     'webhook',
