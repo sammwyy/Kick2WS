@@ -62,10 +62,13 @@ All configuration is via environment variables (see `.env.example`):
 | `PORT` | HTTP port (default `3000`). |
 | `KICK_CLIENT_ID` / `KICK_CLIENT_SECRET` | Your Kick OAuth app credentials. |
 | `KICK_DEFAULT_SCOPES` | Space-separated scopes requested by default. |
-| `KICK_EVENTS` | Comma-separated `name:version` webhook events to subscribe to. |
 | `APP_SECRET` | Secret used to sign dashboard session JWTs. |
-| `DB_PATH` | SQLite file path (default `./data/kick2ws.db`). |
+| `DB_PATH` | SQLite file path (default `./data/kick2ws.db`). Use a persistent volume in production. |
+| `LOGS_ENABLED` | Set to `1` for verbose debug logs. |
 | `INSECURE_SKIP_WEBHOOK_VERIFY` | Set to `1` to skip signature checks. Local only. |
+
+The webhook event catalog is hardcoded in `src/config.ts` (it mirrors Kick's fixed
+event-types table), so there is no event env var to keep in sync.
 
 ### Kick developer app setup
 

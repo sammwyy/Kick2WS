@@ -239,8 +239,8 @@ export function createApp(): express.Express {
     return res.json({ ok: true });
   });
 
-  // Re-create the configured webhook subscriptions for the current user. Use
-  // this after changing KICK_EVENTS so you don't have to re-authorize.
+  // Re-create the webhook subscriptions for the current user without needing to
+  // re-authorize. Useful after a deploy that changes the event catalog.
   app.post('/api/subscriptions/sync', requireSession, async (req: AuthedRequest, res) => {
     const user = req.user as User;
     if (!user.channel_id) {

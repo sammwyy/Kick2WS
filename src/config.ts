@@ -5,6 +5,21 @@ export interface KickEvent {
   version: number;
 }
 
+// The full catalog of Kick webhook events (https://docs.kick.com/events/event-types).
+// Hardcoded on purpose: it's a fixed platform catalog, not deployment config.
+const KICK_EVENTS: KickEvent[] = [
+  { name: 'chat.message.sent', version: 1 },
+  { name: 'channel.followed', version: 1 },
+  { name: 'channel.subscription.new', version: 1 },
+  { name: 'channel.subscription.renewal', version: 1 },
+  { name: 'channel.subscription.gifts', version: 1 },
+  { name: 'channel.reward.redemption.updated', version: 1 },
+  { name: 'livestream.status.updated', version: 1 },
+  { name: 'livestream.metadata.updated', version: 1 },
+  { name: 'moderation.banned', version: 1 },
+  { name: 'kicks.gifted', version: 1 },
+];
+
 function trimUrl(url: string): string {
   return url.replace(/\/+$/, '');
 }
@@ -18,17 +33,6 @@ function required(name: string, fallback?: string): string {
 }
 
 const publicUrl = trimUrl(process.env.PUBLIC_URL ?? 'http://localhost:3000');
-
-function parseEvents(raw: string): KickEvent[] {
-  return raw
-    .split(',')
-    .map((pair) => pair.trim())
-    .filter(Boolean)
-    .map((pair) => {
-      const [name, version] = pair.split(':');
-      return { name: name as string, version: Number(version ?? 1) };
-    });
-}
 
 export const config = {
   publicUrl,
@@ -48,7 +52,7 @@ export const config = {
     )
       .split(/\s+/)
       .filter(Boolean),
-    events: parseEvents(process.env.KICK_EVENTS ?? ''),
+    events: KICK_EVENTS,
     authorizeUrl: 'https://id.kick.com/oauth/authorize',
     tokenUrl: 'https://id.kick.com/oauth/token',
     apiBase: 'https://api.kick.com/public/v1',
