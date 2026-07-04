@@ -5,6 +5,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import { createToken, issueSessionJwt, verifySessionJwt } from './auth.js';
 import { assertKickConfigured, config } from './config.js';
 import {
+  dbStats,
   deleteSubscriptionsForUser,
   deleteUser,
   gcOAuthFlows,
@@ -16,6 +17,7 @@ import {
   revokeToken,
   saveOAuthFlow,
   takeOAuthFlow,
+  updateUserTokens,
   upsertUser,
 } from './db.js';
 import { activeChannels } from './hub.js';
@@ -26,8 +28,9 @@ import {
   deleteSubscription,
   exchangeCode,
   fetchSelf,
+  refreshAccessToken,
 } from './kick.js';
-import { debug } from './logger.js';
+import { debug, error } from './logger.js';
 import type { User } from './types.js';
 import { handleWebhook } from './webhook.js';
 
@@ -56,6 +59,45 @@ function setSessionCookie(res: Response, token: string): void {
     'Set-Cookie',
     `k2ws_session=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${maxAge}${secure}`,
   );
+}
+
+/** Return a non-expired access token for the user, refreshing if needed. */
+async function ensureAccessToken(user: User): Promise<string | null> {
+  if (!user.access_token) return null;
+  const stillValid = !user.expires_at || user.expires_at - 60_000 > Date.now();
+  if (stillValid) return user.access_token;
+  if (!user.refresh_token) return user.access_token;
+  try {
+    const tokens = await refreshAccessToken(user.refresh_token);
+    const expiresAt = Date.now() + (tokens.expires_in ?? 3600) * 1000;
+    updateUserTokens(user.id, {
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token ?? user.refresh_token,
+      expires_at: expiresAt,
+    });
+    debug('oauth', `refreshed access token for user=${user.id}`);
+    return tokens.access_token;
+  } catch (err) {
+    error('oauth', `token refresh failed for user=${user.id}:`, (err as Error).message);
+    return user.access_token;
+  }
+}
+
+/** Create the configured webhook subscriptions and persist their ids. */
+async function syncSubscriptions(userId: string, accessToken: string): Promise<number> {
+  if (config.kick.events.length === 0) return 0;
+  const resp = await createSubscriptions(accessToken, config.kick.events);
+  debug('oauth', 'createSubscriptions response:', JSON.stringify(resp));
+  resp.data.forEach((item, index) => {
+    const fallback = config.kick.events[index];
+    insertSubscription({
+      id: String(item.subscription_id ?? item.id ?? `${userId}:${fallback?.name}`),
+      user_id: userId,
+      event_name: item.name ?? fallback?.name ?? 'unknown',
+      version: item.version ?? fallback?.version ?? 1,
+    });
+  });
+  return resp.data.length;
 }
 
 function requireSession(req: AuthedRequest, res: Response, next: NextFunction): void {
@@ -116,9 +158,9 @@ export function createApp(): express.Express {
   app.get('/oauth/callback', async (req, res) => {
     try {
       assertKickConfigured();
-      const { code, state, error, error_description } = req.query;
-      if (error) {
-        return res.status(400).send(`Kick OAuth error: ${error} ${error_description ?? ''}`);
+      const { code, state, error: oauthError, error_description } = req.query;
+      if (oauthError) {
+        return res.status(400).send(`Kick OAuth error: ${oauthError} ${error_description ?? ''}`);
       }
       if (!code || !state) return res.status(400).send('Missing code/state');
 
@@ -145,19 +187,9 @@ export function createApp(): express.Express {
 
       if (config.kick.events.length > 0 && flow.scopes.includes('events:subscribe')) {
         try {
-          const resp = await createSubscriptions(tokens.access_token, config.kick.events);
-          debug('oauth', 'createSubscriptions response:', JSON.stringify(resp));
-          resp.data.forEach((item, index) => {
-            const fallback = config.kick.events[index];
-            insertSubscription({
-              id: String(item.subscription_id ?? item.id ?? `${userId}:${fallback?.name}`),
-              user_id: userId,
-              event_name: item.name ?? fallback?.name ?? 'unknown',
-              version: item.version ?? fallback?.version ?? 1,
-            });
-          });
+          await syncSubscriptions(userId, tokens.access_token);
         } catch (err) {
-          console.error('[oauth] subscription creation failed:', (err as Error).message);
+          error('oauth', 'subscription creation failed:', (err as Error).message);
         }
       }
 
@@ -208,6 +240,23 @@ export function createApp(): express.Express {
     return res.json({ ok: true });
   });
 
+  // Re-create the configured webhook subscriptions for the current user. Use
+  // this after changing KICK_EVENTS so you don't have to re-authorize.
+  app.post('/api/subscriptions/sync', requireSession, async (req: AuthedRequest, res) => {
+    const user = req.user as User;
+    const accessToken = await ensureAccessToken(user);
+    if (!accessToken) {
+      return res.status(400).json({ error: 'no access token; re-authorize with Kick' });
+    }
+    try {
+      const created = await syncSubscriptions(user.id, accessToken);
+      return res.json({ ok: true, created, subscriptions: listSubscriptions(user.id) });
+    } catch (err) {
+      error('subscriptions', 'sync failed:', (err as Error).message);
+      return res.status(502).json({ error: `sync failed: ${(err as Error).message}` });
+    }
+  });
+
   app.post('/api/logout', requireSession, async (req: AuthedRequest, res) => {
     const user = req.user as User;
     if (user.access_token) {
@@ -234,6 +283,8 @@ export function createApp(): express.Express {
       logs_enabled: config.logsEnabled,
       skip_webhook_verify: config.skipWebhookVerify,
       webhook_url: config.kick.webhookUrl,
+      configured_events: config.kick.events.map((e) => `${e.name}:${e.version}`),
+      db: dbStats(),
       your_channel_id: user.channel_id,
       subscriptions: listSubscriptions(user.id),
       active_ws_channels: activeChannels(),

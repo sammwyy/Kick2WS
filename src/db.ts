@@ -4,7 +4,8 @@ import Database from 'better-sqlite3';
 import { config } from './config.js';
 import type { OAuthFlow, Subscription, Token, User } from './types.js';
 
-fs.mkdirSync(path.dirname(path.resolve(config.dbPath)), { recursive: true });
+export const dbAbsolutePath = path.resolve(config.dbPath);
+fs.mkdirSync(path.dirname(dbAbsolutePath), { recursive: true });
 
 export const db = new Database(config.dbPath);
 db.pragma('journal_mode = WAL');
@@ -82,6 +83,15 @@ export function deleteUser(id: string): void {
   db.prepare('DELETE FROM users WHERE id = ?').run(id);
 }
 
+export function updateUserTokens(
+  id: string,
+  tokens: { access_token: string; refresh_token: string | null; expires_at: number },
+): void {
+  db.prepare(
+    'UPDATE users SET access_token=?, refresh_token=?, expires_at=?, updated_at=? WHERE id=?',
+  ).run(tokens.access_token, tokens.refresh_token, tokens.expires_at, Date.now(), id);
+}
+
 export function insertToken(
   token: Omit<Token, 'created_at' | 'last_used_at' | 'revoked_at'>,
 ): void {
@@ -153,4 +163,21 @@ export function takeOAuthFlow(state: string): OAuthFlow | undefined {
 
 export function gcOAuthFlows(): void {
   db.prepare('DELETE FROM oauth_flows WHERE created_at < ?').run(Date.now() - 10 * 60 * 1000);
+}
+
+/** Row counts and resolved path, for the startup log and /api/debug. */
+export function dbStats(): {
+  path: string;
+  users: number;
+  tokens: number;
+  subscriptions: number;
+} {
+  const count = (table: string) =>
+    (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
+  return {
+    path: dbAbsolutePath,
+    users: count('users'),
+    tokens: count('tokens'),
+    subscriptions: count('subscriptions'),
+  };
 }

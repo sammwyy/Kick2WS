@@ -4,6 +4,7 @@ import type { Duplex } from 'node:stream';
 import { type WebSocket, WebSocketServer } from 'ws';
 import { sessionUserFromCookie, verifyToken } from './auth.js';
 import { config } from './config.js';
+import { dbStats } from './db.js';
 import { type ClientContext, addClient, clientCount, removeClient } from './hub.js';
 import { debug } from './logger.js';
 import { createApp } from './routes.js';
@@ -116,6 +117,10 @@ server.listen(config.port, () => {
   console.log(`  OAuth login: ${config.publicUrl}/oauth/login`);
   console.log(`  Webhook URL: ${config.kick.webhookUrl}`);
   console.log(`  WebSocket:   ${wsBase}/ws?token=...`);
+  const stats = dbStats();
+  console.log(
+    `  Database:    ${stats.path} (users=${stats.users} tokens=${stats.tokens} subscriptions=${stats.subscriptions})`,
+  );
   console.log(`  Debug logs:  ${config.logsEnabled ? 'ON (LOGS_ENABLED=1)' : 'off'}`);
   if (!config.kick.clientId) console.warn('  Warning: KICK_CLIENT_ID not set, OAuth disabled.');
   if (config.skipWebhookVerify) console.warn('  Warning: webhook signature verification disabled.');

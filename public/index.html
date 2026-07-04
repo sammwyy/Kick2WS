@@ -41,6 +41,10 @@
         <div class="kv"><span class="k">Granted scopes</span><span class="mono" id="uScopes">—</span></div>
         <div class="kv"><span class="k">Webhook events</span><span class="mono" id="uSubs">—</span></div>
         <div class="row" style="margin-top:16px">
+          <button class="ghost" id="syncBtn">Sync subscriptions</button>
+          <span class="muted">Re-create the configured webhook events (after changing KICK_EVENTS).</span>
+        </div>
+        <div class="row" style="margin-top:12px">
           <button class="danger" id="logoutBtn">Destroy session</button>
           <span class="muted">Removes the user and revokes Kick webhooks + all tokens.</span>
         </div>

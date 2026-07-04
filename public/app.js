@@ -225,6 +225,12 @@ function wireEvents() {
     location.href = `/oauth/login?scopes=${encodeURIComponent(collectScopes())}`;
   };
   $('logoutBtn').onclick = logout;
+  $('syncBtn').onclick = async () => {
+    const r = await api('/api/subscriptions/sync', { method: 'POST' });
+    if (r?.ok) alert(`Synced ${r.created} subscription(s).`);
+    else alert(`Sync failed: ${r?.error ?? 'unknown error'}`);
+    refresh();
+  };
   $('createTokenBtn').onclick = createTokenFromForm;
   $('copySecret').onclick = () => navigator.clipboard?.writeText(lastSecret);
   $('feedConnect').onclick = connectFeed;
