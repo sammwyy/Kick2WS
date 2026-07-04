@@ -42,7 +42,10 @@ export const config = {
     clientSecret: process.env.KICK_CLIENT_SECRET ?? '',
     redirectUri: `${publicUrl}/oauth/callback`,
     webhookUrl: `${publicUrl}/webhook`,
-    defaultScopes: (process.env.KICK_DEFAULT_SCOPES ?? 'user:read channel:read events:subscribe')
+    defaultScopes: (
+      process.env.KICK_DEFAULT_SCOPES ??
+      'user:read channel:read events:subscribe channel:rewards:read'
+    )
       .split(/\s+/)
       .filter(Boolean),
     events: parseEvents(process.env.KICK_EVENTS ?? ''),

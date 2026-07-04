@@ -10,6 +10,7 @@ const OAUTH_SCOPES = [
   { name: 'user:read', desc: 'Read your profile', default: true },
   { name: 'channel:read', desc: 'Read channel info', default: true },
   { name: 'events:subscribe', desc: 'Receive webhook events (required)', default: true },
+  { name: 'channel:rewards:read', desc: 'Receive channel points redemptions', default: true },
   { name: 'channel:write', desc: 'Update channel info', default: false },
   { name: 'chat:write', desc: 'Send chat messages', default: false },
   { name: 'moderation:ban', desc: 'Ban / timeout users', default: false },

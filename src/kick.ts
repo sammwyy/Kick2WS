@@ -78,6 +78,19 @@ export function refreshAccessToken(refreshToken: string): Promise<TokenResponse>
   });
 }
 
+/**
+ * App access token via client_credentials. Kick's EventSub webhook management
+ * (create/delete subscriptions) is done with an app token, not a user token.
+ */
+export async function getAppAccessToken(): Promise<string> {
+  const tokens = await tokenRequest({
+    grant_type: 'client_credentials',
+    client_id: config.kick.clientId,
+    client_secret: config.kick.clientSecret,
+  });
+  return tokens.access_token;
+}
+
 async function apiFetch<T>(
   accessToken: string,
   pathname: string,
@@ -113,24 +126,32 @@ export interface CreatedSubscription {
   version?: number;
 }
 
-/** Subscribe to webhook events; Kick delivers them to the app's webhook URL. */
+/**
+ * Subscribe a broadcaster's channel to webhook events. The explicit
+ * `callback_url` makes delivery independent of the app dashboard config.
+ */
 export async function createSubscriptions(
-  accessToken: string,
+  appToken: string,
+  broadcasterId: string,
+  callbackUrl: string,
   events: readonly KickEvent[],
 ): Promise<{ data: CreatedSubscription[] }> {
   if (events.length === 0) return { data: [] };
-  return apiFetch(accessToken, '/events/subscriptions', {
+  return apiFetch(appToken, '/events/subscriptions', {
     method: 'POST',
     body: JSON.stringify({
+      broadcaster_user_id: Number(broadcasterId),
       method: 'webhook',
+      callback_url: callbackUrl,
       events: events.map((event) => ({ name: event.name, version: event.version })),
     }),
   });
 }
 
-export function deleteSubscription(accessToken: string, id: string): Promise<unknown> {
-  return apiFetch(accessToken, `/events/subscriptions?id=${encodeURIComponent(id)}`, {
+export function deleteSubscription(appToken: string, id: string): Promise<unknown> {
+  return apiFetch(appToken, '/events/subscriptions', {
     method: 'DELETE',
+    body: JSON.stringify({ id }),
   });
 }
 

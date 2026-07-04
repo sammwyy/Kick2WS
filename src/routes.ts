@@ -17,7 +17,6 @@ import {
   revokeToken,
   saveOAuthFlow,
   takeOAuthFlow,
-  updateUserTokens,
   upsertUser,
 } from './db.js';
 import { activeChannels } from './hub.js';
@@ -28,7 +27,7 @@ import {
   deleteSubscription,
   exchangeCode,
   fetchSelf,
-  refreshAccessToken,
+  getAppAccessToken,
 } from './kick.js';
 import { debug, error } from './logger.js';
 import type { User } from './types.js';
@@ -61,33 +60,21 @@ function setSessionCookie(res: Response, token: string): void {
   );
 }
 
-/** Return a non-expired access token for the user, refreshing if needed. */
-async function ensureAccessToken(user: User): Promise<string | null> {
-  if (!user.access_token) return null;
-  const stillValid = !user.expires_at || user.expires_at - 60_000 > Date.now();
-  if (stillValid) return user.access_token;
-  if (!user.refresh_token) return user.access_token;
-  try {
-    const tokens = await refreshAccessToken(user.refresh_token);
-    const expiresAt = Date.now() + (tokens.expires_in ?? 3600) * 1000;
-    updateUserTokens(user.id, {
-      access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token ?? user.refresh_token,
-      expires_at: expiresAt,
-    });
-    debug('oauth', `refreshed access token for user=${user.id}`);
-    return tokens.access_token;
-  } catch (err) {
-    error('oauth', `token refresh failed for user=${user.id}:`, (err as Error).message);
-    return user.access_token;
-  }
-}
-
-/** Create the configured webhook subscriptions and persist their ids. */
-async function syncSubscriptions(userId: string, accessToken: string): Promise<number> {
+/**
+ * Create the configured webhook subscriptions for a broadcaster and persist
+ * their ids. Uses an app access token and an explicit callback URL, so delivery
+ * does not depend on the Kick app dashboard webhook config.
+ */
+async function syncSubscriptions(userId: string, broadcasterId: string): Promise<number> {
   if (config.kick.events.length === 0) return 0;
-  const resp = await createSubscriptions(accessToken, config.kick.events);
-  debug('oauth', 'createSubscriptions response:', JSON.stringify(resp));
+  const appToken = await getAppAccessToken();
+  const resp = await createSubscriptions(
+    appToken,
+    broadcasterId,
+    config.kick.webhookUrl,
+    config.kick.events,
+  );
+  debug('subscriptions', 'createSubscriptions response:', JSON.stringify(resp));
   resp.data.forEach((item, index) => {
     const fallback = config.kick.events[index];
     insertSubscription({
@@ -187,7 +174,7 @@ export function createApp(): express.Express {
 
       if (config.kick.events.length > 0 && flow.scopes.includes('events:subscribe')) {
         try {
-          await syncSubscriptions(userId, tokens.access_token);
+          await syncSubscriptions(userId, channelId);
         } catch (err) {
           error('oauth', 'subscription creation failed:', (err as Error).message);
         }
@@ -244,12 +231,11 @@ export function createApp(): express.Express {
   // this after changing KICK_EVENTS so you don't have to re-authorize.
   app.post('/api/subscriptions/sync', requireSession, async (req: AuthedRequest, res) => {
     const user = req.user as User;
-    const accessToken = await ensureAccessToken(user);
-    if (!accessToken) {
-      return res.status(400).json({ error: 'no access token; re-authorize with Kick' });
+    if (!user.channel_id) {
+      return res.status(400).json({ error: 'no channel id; re-authorize with Kick' });
     }
     try {
-      const created = await syncSubscriptions(user.id, accessToken);
+      const created = await syncSubscriptions(user.id, user.channel_id);
       return res.json({ ok: true, created, subscriptions: listSubscriptions(user.id) });
     } catch (err) {
       error('subscriptions', 'sync failed:', (err as Error).message);
@@ -259,13 +245,23 @@ export function createApp(): express.Express {
 
   app.post('/api/logout', requireSession, async (req: AuthedRequest, res) => {
     const user = req.user as User;
-    if (user.access_token) {
-      for (const sub of listSubscriptions(user.id)) {
-        try {
-          await deleteSubscription(user.access_token, sub.id);
-        } catch (err) {
-          console.error('[logout] failed to delete subscription', sub.id, (err as Error).message);
+    const subs = listSubscriptions(user.id);
+    if (subs.length > 0) {
+      try {
+        const appToken = await getAppAccessToken();
+        for (const sub of subs) {
+          try {
+            await deleteSubscription(appToken, sub.id);
+          } catch (err) {
+            error('logout', `failed to delete subscription ${sub.id}:`, (err as Error).message);
+          }
         }
+      } catch (err) {
+        error(
+          'logout',
+          'could not obtain app token to delete subscriptions:',
+          (err as Error).message,
+        );
       }
     }
     deleteSubscriptionsForUser(user.id);
