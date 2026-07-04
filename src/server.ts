@@ -121,7 +121,14 @@ server.listen(config.port, () => {
   console.log(
     `  Database:    ${stats.path} (users=${stats.users} tokens=${stats.tokens} subscriptions=${stats.subscriptions})`,
   );
+  console.log(`  Events:      ${config.kick.events.length} configured`);
   console.log(`  Debug logs:  ${config.logsEnabled ? 'ON (LOGS_ENABLED=1)' : 'off'}`);
   if (!config.kick.clientId) console.warn('  Warning: KICK_CLIENT_ID not set, OAuth disabled.');
   if (config.skipWebhookVerify) console.warn('  Warning: webhook signature verification disabled.');
+  if (stats.path.startsWith(process.cwd())) {
+    console.warn(
+      `  Warning: database lives inside the app directory (${stats.path}). On containers/PaaS ` +
+        'this is EPHEMERAL and wiped on every redeploy. Set DB_PATH to a mounted persistent volume.',
+    );
+  }
 });
