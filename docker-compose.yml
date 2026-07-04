@@ -1,0 +1,15 @@
+services:
+  kick2ws:
+    build: .
+    restart: unless-stopped
+    ports:
+      - '${PORT:-3000}:3000'
+    env_file:
+      - .env
+    environment:
+      DB_PATH: /data/kick2ws.db
+    volumes:
+      - kick2ws-data:/data
+
+volumes:
+  kick2ws-data:

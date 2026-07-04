@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kick2WS</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="logo">Kick<b>2</b>WS</div>
+      <div class="status"><span class="dot" id="wsDot"></span><span id="statusText">offline</span></div>
+    </header>
+
+    <!-- Logged out -->
+    <section id="loggedOut" class="card hero hidden">
+      <h1>Connect Kick to anything.</h1>
+      <p>Authorize your channel once and stream follows, subs, gifts and chat to any
+         app, game or overlay over a single authenticated WebSocket.</p>
+      <label style="text-align:left">Scopes to grant</label>
+      <div class="grid" id="scopeGrid" style="text-align:left"></div>
+      <div class="row" style="justify-content:center; margin-top:22px">
+        <button class="btn-lg" id="loginBtn">Authorize with Kick →</button>
+      </div>
+    </section>
+
+    <!-- Logged in -->
+    <div id="loggedIn" class="hidden">
+      <nav class="tabs">
+        <button class="tab-btn active" data-tab="overview">Overview</button>
+        <button class="tab-btn" data-tab="tokens">Tokens</button>
+        <button class="tab-btn" data-tab="feed">Live feed</button>
+      </nav>
+
+      <section class="card tab-panel" data-panel="overview">
+        <h2>Your channel</h2>
+        <p class="sub">Identity and active webhook subscriptions.</p>
+        <div class="kv"><span class="k">User</span><span class="mono" id="uName">—</span></div>
+        <div class="kv"><span class="k">Channel ID</span><span class="mono" id="uChannel">—</span></div>
+        <div class="kv"><span class="k">Granted scopes</span><span class="mono" id="uScopes">—</span></div>
+        <div class="kv"><span class="k">Webhook events</span><span class="mono" id="uSubs">—</span></div>
+        <div class="row" style="margin-top:16px">
+          <button class="danger" id="logoutBtn">Destroy session</button>
+          <span class="muted">Removes the user and revokes Kick webhooks + all tokens.</span>
+        </div>
+      </section>
+
+      <section class="card tab-panel hidden" data-panel="tokens">
+        <h2>Tokens</h2>
+        <p class="sub">One token authenticates one app. The secret is shown only once.</p>
+        <div id="tokenList"></div>
+
+        <label>New token label</label>
+        <input type="text" id="tLabel" placeholder="e.g. OBS overlay, Unity game, chat bot" />
+
+        <label>Allowed events</label>
+        <div class="toggle" style="margin-bottom:8px">
+          <span>All events (full access)</span>
+          <span class="switch"><input type="checkbox" id="permAll" checked /><span class="track"><span class="thumb"></span></span></span>
+        </div>
+        <div class="grid" id="permGrid"></div>
+
+        <div class="row" style="margin-top:16px">
+          <button id="createTokenBtn">Generate token</button>
+        </div>
+        <div id="secretBox" class="secret hidden">
+          <span class="val mono" id="secretVal"></span>
+          <button class="ghost" id="copySecret">Copy</button>
+        </div>
+      </section>
+
+      <section class="card tab-panel hidden" data-panel="feed">
+        <h2>Live event feed</h2>
+        <p class="sub">Streams your channel's events using this browser session. No token needed.</p>
+        <div class="row" style="justify-content:space-between">
+          <div class="row">
+            <button id="feedConnect">Connect</button>
+            <button class="ghost" id="feedDisconnect">Disconnect</button>
+            <button class="ghost" id="feedClear">Clear</button>
+          </div>
+          <span class="muted count" id="feedCount">0 events</span>
+        </div>
+        <div class="row" style="margin:10px 0 8px">
+          <span class="muted mono" id="feedInfo"></span>
+        </div>
+        <div class="feed" id="feed"><div class="empty">Not connected. Press Connect to stream live events.</div></div>
+      </section>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
