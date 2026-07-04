@@ -1,0 +1,25 @@
+plugins {
+    id 'java-library'
+    id 'application'
+}
+
+group = 'com.sammwy.kick2ws'
+version = '0.1.0'
+
+repositories {
+    mavenCentral()
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+dependencies {
+    api 'com.google.code.gson:gson:2.11.0'
+}
+
+application {
+    mainClass = 'com.sammwy.kick2ws.Example'
+}

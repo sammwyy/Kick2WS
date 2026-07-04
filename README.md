@@ -128,6 +128,11 @@ The dashboard is powered by a small session-authenticated API:
 | `POST` | `/webhook` | Kick webhook receiver (signature verified). |
 | `GET` | `/healthz` | Health check. |
 
+## Clients
+
+- **Java** — typed client in [`clients/java`](clients/java/README.md):
+  `new Kick2WSClient(endpoint, token)` with one strongly-typed emitter per event.
+
 ## Deployment
 
 ### Docker Compose (recommended)
