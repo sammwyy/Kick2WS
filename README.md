@@ -171,6 +171,28 @@ pnpm build
 NODE_ENV=production pnpm start
 ```
 
+## Debugging
+
+Set `LOGS_ENABLED=1` to get verbose logs across the whole pipeline: webhook
+receipt, signature verification, channel resolution, WebSocket connect/disconnect
+and broadcast delivery (with per-channel client counts).
+
+If events are not reaching your clients, the usual cause is a **channel id
+mismatch**: the id stored at OAuth differs from the one in the webhook payload,
+so the event lands on a channel with no subscribers. Log in and open
+`GET /api/debug` (session-authenticated) to compare:
+
+```jsonc
+{
+  "your_channel_id": "12345",
+  "subscriptions": [ /* Kick subscriptions created for you */ ],
+  "active_ws_channels": [ { "channelId": "12345", "clients": 1 } ]
+}
+```
+
+If `your_channel_id` is not present in `active_ws_channels`, or a webhook log
+shows `no clients for channel=<x>` with a different id, that is the mismatch.
+
 ## Security notes
 
 - Tokens are shown **once** at creation. Only a SHA-256 hash is persisted, so a

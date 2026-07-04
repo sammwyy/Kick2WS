@@ -5,6 +5,7 @@ import { type WebSocket, WebSocketServer } from 'ws';
 import { sessionUserFromCookie, verifyToken } from './auth.js';
 import { config } from './config.js';
 import { type ClientContext, addClient, clientCount, removeClient } from './hub.js';
+import { debug } from './logger.js';
 import { createApp } from './routes.js';
 import type { Token, User } from './types.js';
 
@@ -53,6 +54,7 @@ server.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
   }
   const auth = authFromRequest(req);
   if (!auth) {
+    debug('ws', `upgrade rejected: no valid token or session (ip=${req.socket.remoteAddress})`);
     socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
     socket.destroy();
     return;
@@ -68,6 +70,10 @@ wss.on('connection', (ws: WebSocket, _req: IncomingMessage, auth: WsAuth) => {
     userId: auth.user.id,
   };
   addClient(ctx);
+  debug(
+    'ws',
+    `connected user=${ctx.userId} channel=${ctx.channelId} auth=${auth.token ? 'token' : 'session'} subscribers=${clientCount(ctx.channelId)}`,
+  );
 
   ws.send(
     JSON.stringify({
@@ -87,7 +93,10 @@ wss.on('connection', (ws: WebSocket, _req: IncomingMessage, auth: WsAuth) => {
   ws.on('message', (buf) => {
     if (buf.toString() === 'ping') ws.send('pong');
   });
-  ws.on('close', () => removeClient(ctx));
+  ws.on('close', () => {
+    removeClient(ctx);
+    debug('ws', `disconnected user=${ctx.userId} channel=${ctx.channelId}`);
+  });
   ws.on('error', () => removeClient(ctx));
 
   const heartbeat = setInterval(() => {
@@ -107,6 +116,7 @@ server.listen(config.port, () => {
   console.log(`  OAuth login: ${config.publicUrl}/oauth/login`);
   console.log(`  Webhook URL: ${config.kick.webhookUrl}`);
   console.log(`  WebSocket:   ${wsBase}/ws?token=...`);
+  console.log(`  Debug logs:  ${config.logsEnabled ? 'ON (LOGS_ENABLED=1)' : 'off'}`);
   if (!config.kick.clientId) console.warn('  Warning: KICK_CLIENT_ID not set, OAuth disabled.');
   if (config.skipWebhookVerify) console.warn('  Warning: webhook signature verification disabled.');
 });

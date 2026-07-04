@@ -3,6 +3,7 @@ import { config } from './config.js';
 import { findChannelBySubscription } from './db.js';
 import { broadcast } from './hub.js';
 import { verifyWebhookSignature } from './kick.js';
+import { debug, error, warn } from './logger.js';
 
 interface WebhookRequest extends Request {
   rawBody?: Buffer;
@@ -12,20 +13,26 @@ interface WebhookRequest extends Request {
 function resolveChannelId(
   data: Record<string, unknown>,
   subscriptionId: string | null,
-): string | null {
+): { channelId: string | null; source: string } {
   const broadcaster = data.broadcaster as Record<string, unknown> | undefined;
   const channel = data.channel as Record<string, unknown> | undefined;
-  const candidates = [
-    broadcaster?.channel_id,
-    broadcaster?.user_id,
-    data.broadcaster_user_id,
-    data.channel_id,
-    channel?.id,
-  ].filter((value) => value !== undefined && value !== null);
-
-  if (candidates.length > 0) return String(candidates[0]);
-  if (subscriptionId) return findChannelBySubscription(subscriptionId);
-  return null;
+  const sources: [string, unknown][] = [
+    ['broadcaster.channel_id', broadcaster?.channel_id],
+    ['broadcaster.user_id', broadcaster?.user_id],
+    ['broadcaster_user_id', data.broadcaster_user_id],
+    ['channel_id', data.channel_id],
+    ['channel.id', channel?.id],
+  ];
+  for (const [source, value] of sources) {
+    if (value !== undefined && value !== null) {
+      return { channelId: String(value), source };
+    }
+  }
+  if (subscriptionId) {
+    const channelId = findChannelBySubscription(subscriptionId);
+    if (channelId) return { channelId, source: 'subscription-map' };
+  }
+  return { channelId: null, source: 'none' };
 }
 
 /** Express handler for `POST /webhook`. Requires `req.rawBody` for verification. */
@@ -38,29 +45,44 @@ export async function handleWebhook(req: WebhookRequest, res: Response): Promise
   const subscriptionId = req.get('Kick-Event-Subscription-Id') ?? null;
   const rawBody = req.rawBody?.toString('utf8') ?? '';
 
+  debug(
+    'webhook',
+    `received type=${eventType} v${eventVersion} msg=${messageId} sub=${subscriptionId} bytes=${rawBody.length} signed=${Boolean(signature)}`,
+  );
+
   if (!config.skipWebhookVerify) {
     if (!messageId || !timestamp || !signature) {
+      warn('webhook', `rejected: missing signature headers for type=${eventType}`);
       return res.status(400).json({ error: 'missing signature headers' });
     }
     try {
       const ok = await verifyWebhookSignature({ messageId, timestamp, signature, rawBody });
-      if (!ok) return res.status(401).json({ error: 'invalid signature' });
+      if (!ok) {
+        warn('webhook', `rejected: invalid signature for type=${eventType} msg=${messageId}`);
+        return res.status(401).json({ error: 'invalid signature' });
+      }
+      debug('webhook', `signature ok msg=${messageId}`);
     } catch (err) {
-      console.error('[webhook] verification failed:', (err as Error).message);
+      error('webhook', 'verification threw:', (err as Error).message);
       return res.status(401).json({ error: 'signature verification failed' });
     }
+  } else {
+    debug('webhook', 'signature verification skipped (INSECURE_SKIP_WEBHOOK_VERIFY=1)');
   }
 
   let data: Record<string, unknown>;
   try {
     data = rawBody ? (JSON.parse(rawBody) as Record<string, unknown>) : {};
   } catch {
+    warn('webhook', `rejected: invalid JSON for type=${eventType}`);
     return res.status(400).json({ error: 'invalid json' });
   }
 
-  const channelId = resolveChannelId(data, subscriptionId);
+  const { channelId, source } = resolveChannelId(data, subscriptionId);
+  debug('webhook', `channel resolved=${channelId} via=${source} payload=`, rawBody);
+
   if (!channelId) {
-    console.warn(`[webhook] unresolved channel for event ${eventType}`);
+    warn('webhook', `unresolved channel for type=${eventType}. payload keys: ${Object.keys(data)}`);
     return res.status(202).json({ ok: true, delivered: 0, note: 'channel unresolved' });
   }
 
@@ -71,6 +93,6 @@ export async function handleWebhook(req: WebhookRequest, res: Response): Promise
     timestamp: timestamp ?? null,
     data,
   });
-  console.log(`[webhook] ${eventType} channel=${channelId} -> ${delivered} client(s)`);
+  debug('webhook', `done type=${eventType} channel=${channelId} delivered=${delivered}`);
   return res.status(200).json({ ok: true, delivered });
 }

@@ -18,6 +18,7 @@ import {
   takeOAuthFlow,
   upsertUser,
 } from './db.js';
+import { activeChannels } from './hub.js';
 import {
   buildAuthorizeUrl,
   createPkce,
@@ -26,6 +27,7 @@ import {
   exchangeCode,
   fetchSelf,
 } from './kick.js';
+import { debug } from './logger.js';
 import type { User } from './types.js';
 import { handleWebhook } from './webhook.js';
 
@@ -113,6 +115,8 @@ export function createApp(): express.Express {
       const self = await fetchSelf(tokens.access_token);
       const userId = String(self.user_id ?? self.id);
       const channelId = String(self.channel_id ?? self.user_id ?? self.id);
+      debug('oauth', 'fetchSelf returned:', JSON.stringify(self));
+      debug('oauth', `stored user=${userId} channel_id=${channelId} scopes="${flow.scopes}"`);
 
       const user = upsertUser({
         id: userId,
@@ -127,6 +131,7 @@ export function createApp(): express.Express {
       if (config.kick.events.length > 0 && flow.scopes.includes('events:subscribe')) {
         try {
           const resp = await createSubscriptions(tokens.access_token, config.kick.events);
+          debug('oauth', 'createSubscriptions response:', JSON.stringify(resp));
           resp.data.forEach((item, index) => {
             const fallback = config.kick.events[index];
             insertSubscription({
@@ -203,6 +208,21 @@ export function createApp(): express.Express {
     deleteUser(user.id);
     res.setHeader('Set-Cookie', 'k2ws_session=; HttpOnly; Path=/; Max-Age=0');
     res.json({ ok: true });
+  });
+
+  // Diagnostics: compare your channel id against the channels that actually
+  // have live WebSocket clients. A mismatch means webhook events land on a
+  // different channel id than the one your clients subscribed with.
+  app.get('/api/debug', requireSession, (req: AuthedRequest, res) => {
+    const user = req.user as User;
+    res.json({
+      logs_enabled: config.logsEnabled,
+      skip_webhook_verify: config.skipWebhookVerify,
+      webhook_url: config.kick.webhookUrl,
+      your_channel_id: user.channel_id,
+      subscriptions: listSubscriptions(user.id),
+      active_ws_channels: activeChannels(),
+    });
   });
 
   app.post('/webhook', handleWebhook);

@@ -36,6 +36,7 @@ export const config = {
   appSecret: required('APP_SECRET', 'dev-insecure-secret-change-me'),
   dbPath: process.env.DB_PATH ?? './data/kick2ws.db',
   skipWebhookVerify: process.env.INSECURE_SKIP_WEBHOOK_VERIFY === '1',
+  logsEnabled: process.env.LOGS_ENABLED === '1',
   kick: {
     clientId: process.env.KICK_CLIENT_ID ?? '',
     clientSecret: process.env.KICK_CLIENT_SECRET ?? '',
