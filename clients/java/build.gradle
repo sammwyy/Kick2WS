@@ -1,6 +1,7 @@
 plugins {
     id 'java-library'
     id 'application'
+    id 'maven-publish'
 }
 
 group = 'com.sammwy.kick2ws'
@@ -14,6 +15,8 @@ java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(17)
     }
+    withSourcesJar()
+    withJavadocJar()
 }
 
 dependencies {
@@ -22,4 +25,12 @@ dependencies {
 
 application {
     mainClass = 'com.sammwy.kick2ws.Example'
+}
+
+publishing {
+    publications {
+        maven(MavenPublication) {
+            from components.java
+        }
+    }
 }
