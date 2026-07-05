@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express, { type NextFunction, type Request, type Response } from 'express';
-import { createToken, issueSessionJwt, verifySessionJwt } from './auth.js';
+import { createToken, issueSessionJwt, verifySessionJwt, verifyToken } from './auth.js';
 import { assertKickConfigured, config } from './config.js';
 import {
   dbStats,
@@ -220,6 +220,25 @@ export function createApp(): express.Express {
       })),
       available_events: config.kick.events.map((event) => event.name),
       ws_url: `${config.publicUrl.replace(/^http/, 'ws')}/ws`,
+    });
+  });
+
+  // Lightweight identity check for API/WS token holders (e.g. the WS client
+  // libraries), which have no dashboard session cookie to authenticate with.
+  app.get('/api/whoami', (req: Request, res: Response) => {
+    let raw = req.query.token ? String(req.query.token) : null;
+    const auth = req.headers.authorization;
+    if (!raw && auth?.startsWith('Bearer ')) raw = auth.slice(7);
+
+    const verified = verifyToken(raw);
+    if (!verified) {
+      return res.status(401).json({ error: 'invalid or missing token' });
+    }
+    const { user } = verified;
+    return res.json({
+      id: user.id,
+      channel_id: user.channel_id,
+      username: user.username,
     });
   });
 

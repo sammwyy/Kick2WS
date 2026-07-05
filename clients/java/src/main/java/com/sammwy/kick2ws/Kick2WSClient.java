@@ -14,9 +14,12 @@ import com.sammwy.kick2ws.events.LivestreamStatus;
 import com.sammwy.kick2ws.events.ModerationBanned;
 import com.sammwy.kick2ws.events.RewardRedemption;
 import com.sammwy.kick2ws.events.Subscription;
+import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.net.http.WebSocket;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -55,10 +58,14 @@ public final class Kick2WSClient {
     public final EventEmitter<JsonObject> any = new EventEmitter<>(JsonObject.class);
 
     private final URI uri;
+    private final String httpBase;
+    private final String token;
     private final Gson gson =
             new GsonBuilder().setFieldNamingPolicy(FieldNamingPolicy.LOWER_CASE_WITH_UNDERSCORES).create();
     private final Map<String, EventEmitter<?>> byType = new ConcurrentHashMap<>();
-    private final HttpClient http = HttpClient.newHttpClient();
+    // Pinned to HTTP/1.1: Node's http server doesn't speak h2c, and the default
+    // client's HTTP/2 upgrade attempt just gets the connection dropped.
+    private final HttpClient http = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "kick2ws-reconnect");
         t.setDaemon(true);
@@ -74,6 +81,8 @@ public final class Kick2WSClient {
 
     public Kick2WSClient(String endpoint, String token) {
         this.uri = buildUri(endpoint, token);
+        this.httpBase = buildHttpBase(endpoint);
+        this.token = token;
         byType.put("chat.message.sent", chatMessageSent);
         byType.put("channel.followed", channelFollowed);
         byType.put("channel.subscription.new", channelSubscriptionNew);
@@ -92,6 +101,35 @@ public final class Kick2WSClient {
             base += "/ws";
         }
         return URI.create(base + "?token=" + URLEncoder.encode(token, StandardCharsets.UTF_8));
+    }
+
+    private static String buildHttpBase(String endpoint) {
+        String base = endpoint.replaceFirst("^ws", "http").replaceAll("/+$", "");
+        if (base.endsWith("/ws")) {
+            base = base.substring(0, base.length() - 3);
+        }
+        return base;
+    }
+
+    /**
+     * Synchronously calls the server to verify the token and return the identity
+     * it is authenticated as. Useful to validate credentials/connectivity before
+     * (or independently of) opening the WebSocket connection.
+     *
+     * @throws IOException if the request fails or the token is rejected.
+     */
+    public Me getMe() throws IOException, InterruptedException {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(httpBase + "/api/whoami"))
+                .header("Authorization", "Bearer " + token)
+                .GET()
+                .build();
+        HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() != 200) {
+            throw new IOException("getMe failed: HTTP " + response.statusCode() + " " + response.body());
+        }
+        JsonObject body = JsonParser.parseString(response.body()).getAsJsonObject();
+        return new Me(str(body, "id"), str(body, "channel_id"), str(body, "username"));
     }
 
     public Kick2WSClient onWelcome(Consumer<Welcome> handler) {
